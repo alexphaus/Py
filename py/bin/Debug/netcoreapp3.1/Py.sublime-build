@@ -1,0 +1,11 @@
+{
+    "cmd" : ["dotnet", "build"],
+    "working_dir" : "$folder",
+
+    "variants" : [
+      {
+        "name" : "Run",
+        "cmd" : ["dotnet", "/home/alex/Documents/py/bin/Debug/netcoreapp3.1/py.dll", "$file"]
+      }
+    ]
+}
