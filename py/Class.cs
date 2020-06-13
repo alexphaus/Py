@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 using Exp = System.Linq.Expressions.Expression;
 
 namespace Py
@@ -8,7 +7,7 @@ namespace Py
     public class Object
     {
         public Class __class__ { get; }
-        public Dictionary<string, Object> loc { get; }
+        public Dictionary<Object, Object> __dict__ { get; }
 
         public Object()
         {
@@ -18,7 +17,7 @@ namespace Py
         public Object(Class type)
         {
             __class__ = type;
-            loc = new Dictionary<string, Object>();
+            __dict__ = new Dictionary<Object, Object>();
         }
 
         public virtual Object Callvirt(string name, Args arg)
@@ -29,16 +28,16 @@ namespace Py
                 return func.__call__(arg);
             }
             
-            throw new Exception($"'{__class__.Name}' object has no attribute '{name}'");
+            throw new Exception($"object '{__class__.Name}' has no method '{name}'");
         }
 
         public virtual Object __call__(Args arg) =>
             Callvirt("__call__", arg);
 
-        public virtual Object __getattr__(string name) => loc[name];
+        public virtual Object __getattr__(String name) => __dict__[name];
 
-        public virtual Object __setattr__(string name, Object value) =>
-            loc[name] = value;
+        public virtual Object __setattr__(String name, Object value) =>
+            __dict__[name] = value;
 
         public virtual Object __getitem__(Object key) =>
             Callvirt("__getitem__", Args.Create(key));
@@ -46,7 +45,7 @@ namespace Py
         public virtual Object __setitem__(Object key, Object value) =>
             Callvirt("__setitem__", Args.Create(key, value));
 
-        /* OPERATION METHODS */
+        // Binary Operators
 
         public virtual Object __add__(Object other) =>
             Callvirt("__add__", Args.Create(other));
@@ -60,16 +59,101 @@ namespace Py
         public virtual Object __div__(Object other) =>
             Callvirt("__div__", Args.Create(other));
 
+        public virtual Object __floordiv__(Object other) =>
+            Callvirt("__floordiv__", Args.Create(other));
+
+        public virtual Object __mod__(Object other) =>
+            Callvirt("__mod__", Args.Create(other));
+
+        public virtual Object __pow__(Object other) =>
+            Callvirt("__pow__", Args.Create(other));
+
+        public virtual Object __lshift__(Object other) =>
+            Callvirt("__lshift__", Args.Create(other));
+
+        public virtual Object __rshift__(Object other) =>
+            Callvirt("__rshift__", Args.Create(other));
+
+        public virtual Object __and__(Object other) =>
+            Callvirt("__and__", Args.Create(other));
+
+        public virtual Object __xor__(Object other) =>
+            Callvirt("__xor__", Args.Create(other));
+
+        public virtual Object __or__(Object other) =>
+            Callvirt("__or__", Args.Create(other));
+
+        // Unary Operators
+
+        public virtual Object __neg__() =>
+            Callvirt("__neg__", Args.Empty);
+
+        public virtual Object __pos__() =>
+            Callvirt("__pos__", Args.Empty);
+
+        public virtual Object __invert__() =>
+            Callvirt("__invert__", Args.Empty);
+
+        // Comparison Operators
+
         public virtual Object __lt__(Object other) =>
             Callvirt("__lt__", Args.Create(other));
 
-        public virtual bool __bool__() => true;
+        public virtual Object __le__(Object other) =>
+            Callvirt("__le__", Args.Create(other));
 
-        public virtual object __object__() => this;
+        public virtual Object __eq__(Object other) =>
+            Callvirt("__eq__", Args.Create(other));
+
+        public virtual Object __ne__(Object other) =>
+            Callvirt("__ne__", Args.Create(other));
+
+        public virtual Object __ge__(Object other) =>
+            Callvirt("__ge__", Args.Create(other));
+
+        public virtual Object __gt__(Object other) =>
+            Callvirt("__gt__", Args.Create(other));
+
+        // Logical Operators
+
+        public virtual Object __not__() =>
+            b ? Py.False : Py.True;
+
+        public virtual Object __andalso__(Object other) =>
+            b ? other : this;
+
+        public virtual Object __orelse__(Object other) =>
+            b ? this : other;
+
+        // Membership Operators
+
+        public virtual Object __in__(Object other) =>
+            Callvirt("__contains__", Args.Create(other));
+
+        public virtual Object __notin__(Object other) =>
+            __in__(other).__not__();
+
+        // Identity Operators
+
+        public virtual Object __is__(Object other) =>
+            ReferenceEquals(this, other) ? Py.True : Py.False;
+
+        public virtual Object __isnot__(Object other) =>
+            __is__(other).__not__();
+
+        // Conversion Operators
+
+        public virtual int i => Callvirt("__int__", Args.Empty).i;
+
+        public virtual double f => Callvirt("__float__", Args.Empty).f;
+
+        public virtual bool b => Callvirt("__bool__", Args.Empty).b;
+        
+        public virtual dynamic d => Callvirt("__dynamic__", Args.Empty).d;
 
         public override string ToString()
         {
-            return $"<object '{__class__.Name}'>";
+            return __class__ != null ? $"<object '{__class__.Name}'>" : base.ToString();
         }
     }
 
@@ -83,7 +167,7 @@ namespace Py
 
         /* cached magic methods */
         public Function __init__;
-
+        
         public Class(string name,
                     Dictionary<string, Function> methods,
                     Dictionary<string, Exp> fields,
@@ -92,10 +176,11 @@ namespace Py
         {
             Name = name;
             Methods = methods;
-            methods.TryGetValue("__init__", out __init__);
             Fields = fields;
             this.initf = initf;
             Base = parent;
+
+            methods.TryGetValue("__init__", out __init__);
         }
 
         public override Object Callvirt(string name, Args arg)
@@ -104,10 +189,11 @@ namespace Py
             {
                 var self = arg[0];
                 arg = arg.Shift(); // remove first argument
+                arg.self = self;
                 return func.__call__(arg);
             }
             
-            throw new Exception($"'{__class__.Name}' class has no attribute '{name}'");
+            throw new Exception($"'class {__class__.Name}' has no method '{name}'");
         }
 
         public override Object __call__(Args arg)
@@ -158,7 +244,7 @@ namespace Py
                     Function func = ParseFunc(expr, has_self: true);
                     methods[func.Name] = func;
                 }
-                else if (HasAssign(expr))
+                else if (Contains(expr, TokenType.Assign))
                 {
                     (var left, var right, var op) = SplitAssign(expr);
                     fields[left[0].Value] = Parse(right);

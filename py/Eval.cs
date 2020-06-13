@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Linq;
 using Exp = System.Linq.Expressions.Expression;
+using System.Linq.Expressions;
 
 namespace Py
 {
@@ -54,46 +55,96 @@ namespace Py
 
                     case TokenType.Parenthesis:
                         {
-                            var w = SplitComma(tok.Subset);
+                            var w = Split(tok.Subset, TokenType.Comma);
 
                             if (w.Count == 1) // parenthesis
                                 return Parse(w[0]);
 
                             // tuple
 
-                            var tpl = Exp.New(typeof(Tuple));
                             if (w.Count == 0)
-                                return tpl;
+                                return Exp.New(typeof(Tuple));
                             else
-                                return Exp.ListInit(tpl, w.Select(Parse));
+                                return Exp.New(typeof(Tuple).GetConstructor(new[] { typeof(Object[]) }),
+                                    Exp.NewArrayInit(typeof(Object), w.Select(Parse)));
                         }
                     case TokenType.Brackets:
                         {
-                            var w = SplitComma(tok.Subset);
+                            var w = Split(tok.Subset, TokenType.Comma);
 
-                            var lst = Exp.New(typeof(List));
                             if (w.Count == 0)
-                                return lst;
+                                return Exp.New(typeof(List));
                             else
-                                return Exp.ListInit(lst, w.Select(Parse));
+                                return Exp.New(typeof(List).GetConstructor(new[] { typeof(Object[]) }),
+                                    Exp.NewArrayInit(typeof(Object), w.Select(Parse)));
                         }
                     case TokenType.Braces:
                         {
-                            var w = SplitComma(tok.Subset);
+                            var w = Split(tok.Subset, TokenType.Comma);
 
-                            var dct = Exp.New(typeof(Dict));
-                            if (w.Count == 0)
-                                return dct;
+                            if (Contains(w[0], TokenType.Colon))
+                            {
+                                // dict
+                                if (w.Count == 0)
+                                    return Exp.New(typeof(Dict));
+                                else
+                                {
+                                    var items = new List<ElementInit>();
+                                    var adder = typeof(Dictionary<Object, Object>).GetMethod("Add");
+
+                                    foreach (var v in w)
+                                    {
+                                        var row = Split(v, TokenType.Colon);
+                                        var left = Parse(row[0]);
+                                        var right = Parse(row[1]);
+                                        items.Add(Exp.ElementInit(adder, left, right));
+                                    }
+
+                                    return Exp.New(typeof(Dict).GetConstructor(new[] { typeof(Dictionary<Object, Object>) }),
+                                        Exp.ListInit(Exp.New(typeof(Dictionary<Object, Object>)), items));
+                                }
+                            }
                             else
                             {
-                                return Exp.ListInit(dct, w.Select(Parse));
+                                // set
+                                if (w.Count == 0)
+                                    return Exp.New(typeof(Set));
+                                else
+                                    return Exp.New(typeof(Set).GetConstructor(new[] { typeof(Object[]) }),
+                                        Exp.NewArrayInit(typeof(Object), w.Select(Parse)));
                             }
                         }
                 }
             }
             else // length > 1
             {
-                tok = expr[expr.Count - 1]; // last
+                tok = expr[0]; // starts
+
+                if (tok.Type == TokenType.Operator)
+                {
+                    expr.RemoveAt(0);
+                    Exp obj = ParseUnit(expr);
+
+                    switch (tok.op)
+                    {
+                        case Op.Invert:
+                            return Exp.Call(obj, typeof(Object).GetMethod("__invert__"));
+
+                        case Op.Add:
+                            return Exp.Call(obj, typeof(Object).GetMethod("__pos__"));
+
+                        case Op.Subtract:
+                            return Exp.Call(obj, typeof(Object).GetMethod("__neg__"));
+
+                        case Op.Not:
+                            return Exp.Call(obj, typeof(Object).GetMethod("__not__"));
+
+                        default:
+                            throw new Exception("invalid unary operator");
+                    }
+                }
+
+                tok = expr[^1]; // ends
 
                 if (tok.Type == TokenType.Parenthesis)
                 {
@@ -112,17 +163,6 @@ namespace Py
                     }
                     else // invoke
                     {
-                        if (expr.Count == 1 && tok.Type == TokenType.Identifier)
-                        {
-                            switch (tok.Value)
-                            {
-                                case "len":
-                                    return Exp.Call(Parse(arg), Callvirt, Exp.Constant("__len__"), NullExp);
-
-                                case "super":
-                                    return Local["self"];
-                            }
-                        }
                         Exp obj = ParseUnit(expr);
                         Exp arg_ = ParseArguments(obj, arg);
                         return Exp.Call(obj, typeof(Object).GetMethod("__call__"), arg_);
@@ -132,15 +172,20 @@ namespace Py
                 {
                     expr.RemoveAt(expr.Count - 1); // remove brackets
                     Exp obj = ParseUnit(expr);
+                    // analyze indexer
+                    //if (Contains(expr, TokenType.Comma))
+                    //{
+
+                    //}
                     Exp key = Parse(tok.Subset);
-                    return Exp.Call(obj, Callvirt, key);
+                    return Exp.Call(obj, typeof(Object).GetMethod("__getitem__"), key);
                 }
                 else if (tok.Type == TokenType.Member) // get attr
                 {
                     string name = tok.Value;
                     expr.RemoveAt(expr.Count - 1); // remove member
                     Exp obj = ParseUnit(expr);
-                    return Exp.Call(obj, typeof(Object).GetMethod("__getattr__"), Exp.Constant(name));
+                    return Exp.Call(obj, typeof(Object).GetMethod("__getattr__"), Exp.Constant(new String(name)));
                 }
             }
 
@@ -223,26 +268,7 @@ namespace Py
         {
             var meth = OpMeth[(int)op];
 
-            if (meth is null)
-            {
-                switch (op)
-                {
-                    case Op.OrElse:
-                        Exp c = Cache("c_001");
-                        return Exp.Condition(AsBool(Exp.Assign(c, left)), c, right);
-
-                    case Op.AndAlso:
-                        c = Cache("c_001");
-                        return Exp.Condition(AsBool(Exp.Assign(c, left)), right, c);
-
-                    default:
-                        return null; /* shouldn't get here */
-                }
-            }
-            else
-            {
-                return Exp.Call(left, typeof(Object).GetMethod(meth), right);
-            }
+            return Exp.Call(left, typeof(Object).GetMethod(meth), right);
         }
 
         /// <summary>

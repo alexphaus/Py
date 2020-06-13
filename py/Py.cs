@@ -21,7 +21,13 @@ namespace Py
 
     public partial class Py
     {
-        public static Dictionary<string, Object> Global = new Dictionary<string, Object>();
+        public static Dictionary<string, Object> Global = new Dictionary<string, Object>
+        {
+            { "DLL", Lambda.Create(arg => new Dynamic(Assembly.LoadFrom(cstr(arg[0])))) },
+            { "dynamic", Lambda.Create(arg => new Dynamic(arg[0].d)) },
+            { "len", Lambda.Create(arg => arg[0].Callvirt("__len__", Args.Empty)) },
+            { "super", Lambda.Create(arg => None) }
+        };
         LocalBuilder Local;
 
         /* control flow */
@@ -39,7 +45,6 @@ namespace Py
         /// </summary>
         public readonly static Type Any = typeof(Object);
         public readonly static MethodInfo Callvirt = Any.GetMethod("Callvirt");
-        public readonly static MethodInfo __bool__ = Any.GetMethod("__bool__");
 
         public readonly static Exp NullExp = Exp.Constant(null, Any);
         public readonly static Exp NoneExp = Exp.Constant(None, Any);
@@ -48,26 +53,46 @@ namespace Py
 
         static readonly Exp _G = Exp.Constant(Global);
 
+        public static string cstr(Object obj) => ((String)obj).str;
+
         static void Main(string[] args)
         {
+            System.Threading.Thread.CurrentThread.CurrentCulture = System.Globalization.CultureInfo.CreateSpecificCulture("en-US");
+
             var w = new Stopwatch();
             w.Start();
 
-            try
-            {
-                string file_path = args[0];
-                string src = System.IO.File.ReadAllText(file_path);
+            string file_path = (args.Length == 0) ? "test.py" : args[0];
+            string src = System.IO.File.ReadAllText(file_path);
 
-                var interpreter = new Py();
-                interpreter.Execute(src);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("ERROR " + ex.ToString());
-            }
+            var interpreter = new Py();
+            interpreter.Execute(src);
+            
+            //try
+            //{
+            //    string file_path = (args.Length == 0) ? "test.py" : args[0];
+            //    string src = System.IO.File.ReadAllText(file_path);
+
+            //    var interpreter = new Py();
+            //    interpreter.Execute(src);
+            //}
+            //catch (Exception ex)
+            //{
+            //    Console.WriteLine("ERROR " + ex.ToString());
+            //}
 
             w.Stop();
             Console.WriteLine("~" + w.Elapsed.TotalSeconds);
+        }
+
+        public void Foo()
+        {
+            
+        }
+
+        public Py()
+        {
+            Global.Add("cos8", new Dynamic(this));
         }
 
         public void Execute(string src)
@@ -79,11 +104,6 @@ namespace Py
             del.Invoke();
         }
 
-        Exp ArrayIndex(Exp collection, Exp index)
-        {
-            return Exp.ArrayAccess(collection, index);
-        }
-
         Exp GlobalAccess(string name)
         {
             return Exp.Property(_G, "Item", Exp.Constant(name));
@@ -91,7 +111,7 @@ namespace Py
 
         Exp AsBool(Exp expr)
         {
-            return Exp.Call(expr, __bool__);
+            return Exp.Property(expr, "b");
         }
 
         /* 1-arg callvirt */
@@ -114,20 +134,10 @@ namespace Py
                 ));
         }
 
-        Exp GetItem(Exp collection, Exp key)
-        {
-            return Call(collection, "__getitem__", key);
-        }
-
-        Exp SetItem(Exp collection, Exp key, Exp value)
-        {
-            return null;
-        }
-
-        bool HasAssign(List<Token> tokens)
+        bool Contains(List<Token> tokens, TokenType tokenType)
         {
             foreach (Token tok in tokens)
-                if (tok.Type == TokenType.Assign)
+                if (tok.Type == tokenType)
                     return true;
 
             return false;
@@ -164,7 +174,12 @@ namespace Py
                 if (tok.Type == TokenType.Member)
                 {
                     expr.RemoveAt(expr.Count - 1);
-                    return Exp.Call(Parse(expr), typeof(Object).GetMethod("__setattr__"), Exp.Constant(tok.Value), value);
+                    return Exp.Call(Parse(expr), typeof(Object).GetMethod("__setattr__"), Exp.Constant(new String(tok.Value)), value);
+                }
+                else if (tok.Type == TokenType.Brackets)
+                {
+                    expr.RemoveAt(expr.Count - 1);
+                    return Exp.Call(Parse(expr), typeof(Object).GetMethod("__setitem__"), Parse(tok.Subset), value);
                 }
             }
             throw new Exception("the left hand of the expression is not assignable");
@@ -198,7 +213,7 @@ namespace Py
             8, 8, 8, 8, 8, 8, 8, 8, 8, 8, // ==, !=, <, <=, >, >=, is, is not, in, not in
             9, 10, 11 // not, and, or
         };
-
+        
         static string[] OpMeth = {
             null,
             "__pow__", //Exp.Constant("__pow__"),
@@ -206,7 +221,7 @@ namespace Py
             "__div__", //Exp.Constant("__div__"),
             "__floordiv__", //Exp.Constant("__floordiv__"),
             "__mod__", //Exp.Constant("__mod__"),
-            "__invert__", //Exp.Constant("__invert__"),
+            null, // invert
             "__add__",
             "__sub__", //Exp.Constant("__sub__"),
             "__lshift__", //Exp.Constant("__lshift__"),
@@ -220,13 +235,13 @@ namespace Py
             "__le__", //Exp.Constant("__le__"),
             "__gt__", //Exp.Constant("__gt__"),
             "__ge__", //Exp.Constant("__ge__"),
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null
+            "__is__",
+            "__isnot__",
+            "__in__",
+            "__notin__",
+            null, // not
+            "__andalso__",
+            "__orelse__"
         };
     }
 }

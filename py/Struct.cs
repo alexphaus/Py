@@ -45,6 +45,14 @@ namespace Py
                             goto default;
                         break;
 
+                    case TokenType.String:
+                        if (expr.Count == 0)
+                        {
+                            expr.Command = "emit";
+                            goto default;
+                        }
+                        break;
+
                     case TokenType.Assign:
                         expr.Command = "assign";
                         goto default;
@@ -80,7 +88,7 @@ namespace Py
             return (left, right, op);
         }
 
-        List<List<Token>> SplitComma(List<Token> expr)
+        List<List<Token>> Split(List<Token> expr, TokenType tokenType)
         {
             var values = new List<List<Token>>();
             List<Token> cur;
@@ -95,7 +103,7 @@ namespace Py
 
             foreach (Token tok in expr)
             {
-                if (tok.Type == TokenType.Comma)
+                if (tok.Type == tokenType)
                 {
                     cur = new List<Token>();
                     values.Add(cur);

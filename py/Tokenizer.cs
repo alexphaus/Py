@@ -560,7 +560,7 @@ namespace Py
                         break;
 
                     case Capture.Comment:
-                        if (c == '\r')
+                        if (c == '\n')
                         {
                             cap = Capture.None;
                         }

@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using Exp = System.Linq.Expressions.Expression;
-using System.Text;
 using System.Reflection;
 
 namespace Py
@@ -15,21 +14,18 @@ namespace Py
             return Type.GetType(s);
         }
 
-        Exp cl_exp(string s)
+        object cl_exp(string s)
         {
             if (dcl.TryGetValue(s, out object cl))
-            {
-                return (Exp)cl;
-            }
+                return cl;
+
             else if (Local != null && Local.TryGetValue(s, out Exp local))
-            {
                 return local;
-            }
             else
                 return GlobalAccess(s);
         }
 
-        void PushCL(string s, List<Exp> IL)
+        void Emit(string s, List<Exp> IL)
         {
             string[] args = s.Split();
             string key = args[0];
@@ -41,89 +37,115 @@ namespace Py
             for (int i = 0; i < pcnt; i++)
             {
                 string arg = args[i + 2];
-                char id = arg[0];
-                arg = arg.Substring(1);
-
-                switch (id)
+                
+                if (arg.StartsWith('%')) // string
                 {
-                    case ':': // label
-                        types[i] = typeof(System.Linq.Expressions.LabelTarget);
-                        parameters[i] = dcl[arg];
-                        break;
+                    parameters[i] = arg.Substring(1);
+                }
+                else if (arg.StartsWith('$'))
+                {
 
-                    case '%': // string
-                        types[i] = typeof(string);
-                        parameters[i] = arg;
-                        break;
+                }
+                else if (arg.StartsWith('/')) // Conversion
+                {
+                    parameters[i] = Exp.New(typeof(Dynamic).GetConstructor(new[] { typeof(object) }), (Exp)cl_exp(arg));
+                }
+                else if (arg.StartsWith('?')) // Constant
+                {
+                    arg = arg.Substring(1);
 
-                    case '*': // method-info
-                        string[] spt = arg.Split(',');
-                        string name = spt[1];
+                    if (int.TryParse(arg, out int n))
+                        parameters[i] = Exp.Constant(n);
 
-                        Type t = cl_type(spt[0]);
-                        Type[] types1 = new Type[spt.Length - 2];
+                    else if (double.TryParse(arg, out double f))
+                        parameters[i] = Exp.Constant(f);
 
-                        for (int j = 2; j < spt.Length; j++)
-                            types1[j - 2] = cl_type(spt[j]);
+                    switch (arg)
+                    {
+                        case "true":
+                            parameters[i] = Exp.Constant(true);
+                            break;
 
-                        if (name == ".ctor")
-                        {
-                            types[i] = typeof(ConstructorInfo);
-                            parameters[i] = t.GetConstructor(types1);
-                        }
-                        else
-                        {
-                            types[i] = typeof(MethodInfo);
-                            parameters[i] = t.GetMethod(name, types1);
-                        }
-                        break;
+                        case "false":
+                            parameters[i] = Exp.Constant(false);
+                            break;
 
-                    case '@': // type
-                        if (arg[0] == '[')
-                        {
-                            arg = arg.Substring(1, arg.Length - 2);
-                            spt = arg.Split(',');
-                            types1 = new Type[spt.Length];
-                            for (int j = 0; j < spt.Length; j++)
-                                types1[j] = cl_type(spt[j]);
-                            types[i] = typeof(Type[]);
-                            parameters[i] = types1;
-                        }
-                        else
-                        {
-                            types[i] = typeof(Type);
-                            parameters[i] = cl_type(arg);
-                        }
-                        break;
+                        case "null":
+                            parameters[i] = Exp.Constant(null);
+                            break;
 
-                    case '$': // exp
-                        if (arg[0] == '[')
-                        {
-                            arg = arg.Substring(1, arg.Length - 2);
-                            spt = arg.Split(',');
-                            Exp[] arr = new Exp[spt.Length];
-                            for (int j = 0; j < spt.Length; j++)
-                                arr[j] = cl_exp(spt[j]);
-                            types[i] = typeof(Exp[]);
-                            parameters[i] = arr;
-                        }
-                        else
-                        {
-                            types[i] = typeof(Exp);
-                            parameters[i] = cl_exp(arg);
-                        }
-                        break;
+                        default:
+                            parameters[i] = Exp.Constant(arg);
+                            break;
+                    }
+                }
+                else if (arg.StartsWith('@')) // Type
+                {
+                    parameters[i] = cl_type(arg.Substring(1));
+                }
+                else if (arg.StartsWith('*')) // MethodInfo
+                {
+                    string[] toks = arg.Substring(1).Split(',');
+                    Type type = cl_type(toks[0]);
+                    string name = toks[1];
+                    Type[] parameterTypes = new Type[toks.Length - 2];
+                    
+                    for (int j = 0; j < parameterTypes.Length; j++)
+                        parameterTypes[j] = cl_type(toks[j + 2]);
+
+                    if (name == ".ctor")
+                        parameters[i] = type.GetConstructor(parameterTypes);
+                    else
+                        parameters[i] = type.GetMethod(name, parameterTypes);
+                }
+                else if (arg.StartsWith('(')) // Convert
+                {
+                    
+                }
+                else if (arg.StartsWith('[')) // Exp[]
+                {
+                    var toks = arg.Substring(1, arg.Length - 2).Split(',');
+                    var arr = new Exp[toks.Length];
+                    for (int j = 0; j < arr.Length; j++)
+                        arr[j] = (Exp)cl_exp(toks[j]);
+                    parameters[i] = arr;
+                }
+                else if (arg.StartsWith("@[")) // Type[]
+                {
+                    var toks = arg.Substring(2, arg.Length - 3).Split(',');
+                    var arr = new Type[toks.Length];
+                    for (int j = 0; j < arr.Length; j++)
+                        arr[j] = cl_type(toks[j]);
+                    parameters[i] = arr;
+                }
+                else // Exp & data
+                {
+                    parameters[i] = cl_exp(arg);
                 }
             }
 
-            object line = typeof(Exp).GetMethod(
-                cmd, BindingFlags.Public | BindingFlags.Static | BindingFlags.IgnoreCase,
-                null, types, null).Invoke(null, parameters);
+            object r = null;
 
+            switch (cmd)
+            {
+                case "ret":
+                    r = Exp.Return(ret.Peek(), (Exp)parameters[0]);
+                    break;
+
+                default:
+                    for (int i = 0; i < parameters.Length; i++)
+                        types[i] = parameters[i].GetType();
+
+                    r = typeof(Exp).GetMethod(cmd,
+                        BindingFlags.Public | BindingFlags.Static | BindingFlags.IgnoreCase,
+                        null, types, null).Invoke(null, parameters);
+                    break;
+            }
+            
             if (key == "+")
-                IL.Add((Exp)line);
+                IL.Add((Exp)r);
             else
-                dcl[key] = line;
+                dcl[key] = r;
         }
     }
 }

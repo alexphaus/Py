@@ -55,23 +55,23 @@ namespace Py
                 switch (argInfo.Type)
                 {
                     case ArgType.Default:
-                        args.Add(Input[i]);
+                        args.tuple.Add(Input[i]);
                         break;
 
                     case ArgType.Assignment:
-                        kwargs.Add(argInfo.Key, Input[i]);
+                        kwargs.dict.Add(argInfo.Key, Input[i]);
                         break;
 
                     case ArgType.Args: // unpack list
                         var iterable = ((List)Input[i]).list;
                         foreach (Object elmnt in iterable)
-                            args.Add(elmnt);
+                            args.tuple.Add(elmnt);
                         break;
 
                     case ArgType.Kwargs: // unpack dict
                         var dict = ((Dict)Input[i]).dict;
                         foreach (var pair in dict)
-                            kwargs.Add(pair.Key, pair.Value);
+                            kwargs.dict.Add(pair.Key, pair.Value);
                         break;
                 }
             }
@@ -191,7 +191,7 @@ namespace Py
 
         Params ParseParameters(List<Token> tokens, bool omitFirstParameter = false)
         {
-            var w = SplitComma(tokens);
+            var w = Split(tokens, TokenType.Comma);
 
             if (omitFirstParameter)
                 w.RemoveAt(0);
@@ -207,7 +207,7 @@ namespace Py
                 v = w[i];
                 var pi = new ParamInfo();
 
-                if (HasAssign(v)) // optional parameter
+                if (Contains(v, TokenType.Assign)) // optional parameter
                 {
                     pi.Type = ArgType.Assignment;
                     pi.Name = new String(v[0].Value);
@@ -243,7 +243,7 @@ namespace Py
 
         Exp ParseArguments(Exp self, List<Token> tokens)
         {
-            var w = SplitComma(tokens);
+            var w = Split(tokens, TokenType.Comma);
             List<Token> v;
 
             if (w.Count == 0)
@@ -265,7 +265,7 @@ namespace Py
                 v = w[i];
                 var argInfo = new ArgInfo();
 
-                if (HasAssign(v))
+                if (Contains(v, TokenType.Assign))
                 {
                     argInfo.Type = ArgType.Assignment;
                     argInfo.Key = new String(v[0].Value);

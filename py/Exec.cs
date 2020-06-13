@@ -118,7 +118,7 @@ namespace Py
 
                     case "global":
                         {
-                            var w = SplitComma(expr);
+                            var w = Split(expr, TokenType.Comma);
                             foreach (var v in w)
                                 Local.Add(v[0].Value, GlobalAccess(v[0].Value));
                         }
@@ -148,16 +148,16 @@ namespace Py
                         IL.Add(Exp.Call(typeof(Console).GetMethod("WriteLine", new[] { typeof(object) }), Parse(expr)));
                         break;
 
-                    case "py":
-                        PushCL(expr[0].Value, IL);
+                    case "emit":
+                        Emit(expr[0].Value, IL);
                         break;
 
                     case "assign":
                         {
                             (var left, var right, var op) = SplitAssign(expr);
 
-                            var vars = SplitComma(left);
-                            var values = SplitComma(right);
+                            var vars = Split(left, TokenType.Comma);
+                            var values = Split(right, TokenType.Comma);
 
                             if (op != Op.None) // augmented assignment
                             {
@@ -193,7 +193,7 @@ namespace Py
 
                                 for (int j = 0; j < vars.Count; j++)
                                 {
-                                    IL.Add(Assign(vars[j], Call(iter, "__getitem__", Exp.Constant(new Int(j)))));
+                                    IL.Add(Assign(vars[j], Exp.Call(iter, typeof(Object).GetMethod("__getitem__"), Exp.Constant(new Int(j)))));
                                 }
                             }
                             else if (vars.Count == 1 && values.Count > 1) // tuple

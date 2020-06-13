@@ -9,15 +9,30 @@ namespace Py
     {
         public string Name;
         public Params Parameters;
-        public Func<Args, Object> fx;
+        public Func<Args, Object> handler;
 
         public override Object __call__(Args arg)
         {
             arg.Sort(Parameters);
-            return fx(arg);
+            return handler(arg);
         }
     }
 
+    public class Lambda : Object
+    {
+        public Func<Args, Object> handler;
+
+        public override Object __call__(Args arg)
+        {
+            return handler(arg);
+        }
+
+        public static Lambda Create(Func<Args, Object> del)
+        {
+            return new Lambda { handler = del };
+        }
+    }
+    
     partial class Py
     {
         Function ParseFunc(Expression def, bool has_self = false)
@@ -66,7 +81,7 @@ namespace Py
             {
                 Name = name,
                 Parameters = ps,
-                fx = func
+                handler = func
             };
         }
     }
